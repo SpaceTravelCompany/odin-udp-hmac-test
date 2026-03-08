@@ -16,6 +16,9 @@ HMAC_TAG_SIZE :: 32
 MAX_PAYLOAD_SIZE :: MAX_MESSAGE_SIZE - HMAC_TAG_SIZE
 
 INIT_MSG :: "INIT"
+//ERROR_MSG :: "ERR_" //TODO: Error handling
+REQ_KEY_MSG :: "KEY_"
+RECV_MSG :: "MSG_"
 
 Client :: struct {
 	end:      nbio.Endpoint,
@@ -101,6 +104,9 @@ main :: proc() {
 
 on_send :: proc(op: ^nbio.Operation, m: []byte) {
 	defer delete(m, mtx_allocator)
+	if op.send.err != nil {
+		fmt.eprintln("Send error:", op.send.err)
+	}
 }
 
 on_recv :: proc(op: ^nbio.Operation) {
@@ -116,11 +122,16 @@ on_recv :: proc(op: ^nbio.Operation) {
 	source := op.recv.source
 	data := op.recv.bufs[0][:op.recv.received]
 
+	send_req_key :: proc(sock: nbio.UDP_Socket, ep: nbio.Endpoint) {
+		out := make([]byte, len(server.pubkey_pem) + len(REQ_KEY_MSG), mtx_allocator)
+		copy(out, REQ_KEY_MSG)
+		copy(out[len(REQ_KEY_MSG):], server.pubkey_pem)
+		nbio.send_poly(sock, {out}, out, on_send, endpoint = ep, all = true)
+	}
+
 	// Phase 1: INIT - send pre-exported public key
 	if op.recv.received >= 4 && string(data[:4]) == INIT_MSG {
-		out := make([]byte, len(server.pubkey_pem), mtx_allocator)
-		copy(out, server.pubkey_pem)
-		nbio.send_poly(sock, {out}, out, on_send, endpoint = source, all = true)
+		send_req_key(sock, source)
 		return
 	}
 
@@ -137,25 +148,34 @@ on_recv :: proc(op: ^nbio.Operation) {
 		} else {
 			fmt.printf("Client HMAC key exchange failed size : %d, d: %d\n", 
 			op.recv.received, n)
+			send_req_key(sock, source)
 		}
 		return
 	}
 
 	// Phase 3: Chat message with HMAC
 	if client == nil do return
-	if op.recv.received < HMAC_TAG_SIZE do return
-
-	payload_len := op.recv.received - HMAC_TAG_SIZE
-	payload := data[:payload_len]
-	tag := data[payload_len:payload_len + HMAC_TAG_SIZE]
-
-	if !hmac.verify(hash.Algorithm.SHA256, tag, payload, client.hmac_key[:]) {
-		fmt.eprintln("HMAC verification failed, dropping message")
+	if op.recv.received < HMAC_TAG_SIZE + len(RECV_MSG) do return
+	if string(data[:len(RECV_MSG)]) != RECV_MSG {
+		fmt.eprintln("Invalid message")
+		send_req_key(sock, source)
 		return
 	}
 
-	out := make([]byte, payload_len + HMAC_TAG_SIZE, mtx_allocator)
-	copy(out, payload)
-	hmac.sum(hash.Algorithm.SHA256, out[payload_len:], payload, client.hmac_key[:])
+	payload_len := op.recv.received - HMAC_TAG_SIZE - len(RECV_MSG)
+	payload := data[len(RECV_MSG):len(RECV_MSG) + payload_len]
+	tag := data[len(RECV_MSG) + payload_len:]
+
+	if !hmac.verify(hash.Algorithm.SHA256, tag, payload, client.hmac_key[:]) {
+		fmt.eprintln("HMAC verification failed, dropping message")
+		send_req_key(sock, source)
+		return
+	}
+	fmt.printf("received %v: %s\n", client.end, payload)
+
+	out := make([]byte, payload_len + HMAC_TAG_SIZE + len(RECV_MSG), mtx_allocator)
+	copy(out, RECV_MSG)
+	copy(out[len(RECV_MSG):], payload)
+	hmac.sum(hash.Algorithm.SHA256, out[len(RECV_MSG) + payload_len:], payload, client.hmac_key[:])
 	nbio.send_poly(sock, {out}, out, on_send, endpoint = client.end, all = true)
 }
