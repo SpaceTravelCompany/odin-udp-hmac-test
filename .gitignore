@@ -1,0 +1,6 @@
+*.exe
+chat_client
+ssh/
+.ssh/
+*.pem
+*.env
