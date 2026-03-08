@@ -1,11 +1,11 @@
 package main
 
+import "core:crypto/hash"
+import "core:crypto/hmac"
 import "core:fmt"
+import "core:mem"
 import "core:nbio"
 import "core:net"
-import "core:mem"
-import "core:crypto/hmac"
-import "core:crypto/hash"
 
 import openssl "shared:odin-http/openssl"
 
@@ -26,11 +26,11 @@ Client :: struct {
 }
 
 Chat_Server :: struct {
-	socket:       nbio.UDP_Socket,
-	rsa_private:  ^openssl.RSA,
-	rsa_size:     int,
-	pubkey_pem:   []byte,
-	clients:      [dynamic]Client,
+	socket:      nbio.UDP_Socket,
+	rsa_private: ^openssl.RSA,
+	rsa_size:    int,
+	pubkey_pem:  []byte,
+	clients:     [dynamic]Client,
 }
 
 server: Chat_Server
@@ -46,7 +46,7 @@ find_client :: proc(ep: nbio.Endpoint) -> ^Client {
 }
 
 add_client :: proc(ep: nbio.Endpoint, key: []byte) {
-	new_client := Client{
+	new_client := Client {
 		end = ep,
 	}
 	copy(new_client.hmac_key[:], key[:HMAC_KEY_SIZE])
@@ -138,16 +138,18 @@ on_recv :: proc(op: ^nbio.Operation) {
 	// Phase 2: Encrypted HMAC key (RSA block size)
 	client := find_client(source)
 	if client == nil {
-		decrypted: []byte = make([]byte, max(HMAC_KEY_SIZE, openssl.RSA_size(server.rsa_private)),
-		 mtx_allocator)
+		decrypted: []byte = make(
+			[]byte,
+			max(HMAC_KEY_SIZE, openssl.RSA_size(server.rsa_private)),
+			mtx_allocator,
+		)
 		defer delete(decrypted, mtx_allocator)
 		n := openssl.RSA_decrypt(server.rsa_private, data, decrypted[:])
 		if n == HMAC_KEY_SIZE {
 			add_client(source, decrypted[:HMAC_KEY_SIZE])
 			fmt.printf("Client %v registered (HMAC key exchanged)\n", source)
 		} else {
-			fmt.printf("Client HMAC key exchange failed size : %d, d: %d\n", 
-			op.recv.received, n)
+			fmt.printf("Client HMAC key exchange failed size : %d, d: %d\n", op.recv.received, n)
 			send_req_key(sock, source)
 		}
 		return
