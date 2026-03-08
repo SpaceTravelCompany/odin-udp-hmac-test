@@ -1,16 +1,16 @@
 package main
 
 import "base:intrinsics"
+import "core:crypto"
+import "core:crypto/hash"
+import "core:crypto/hmac"
 import "core:fmt"
 import "core:mem"
 import "core:nbio"
 import "core:net"
 import "core:os"
-import "core:crypto"
-import "core:crypto/hmac"
-import "core:crypto/hash"
-import "core:thread"
 import "core:sync"
+import "core:thread"
 
 import openssl "../openssl"
 
@@ -94,7 +94,7 @@ on_recv :: proc(op: ^nbio.Operation) {
 		fmt.eprintln("Recv error: ", op.recv.err)
 		return
 	}
-	if op.recv.received == 0  {
+	if op.recv.received == 0 {
 		fmt.eprintln("Recv error zero length")
 		return
 	}
@@ -138,10 +138,19 @@ on_recv :: proc(op: ^nbio.Operation) {
 		}
 		out := make([]byte, n)
 		copy(out, encrypted[:n])
-		nbio.send_poly2(socket, {out}, out, context.allocator, on_send, endpoint = server_ep, all = true, l = main_loop)
+		nbio.send_poly2(
+			socket,
+			{out},
+			out,
+			context.allocator,
+			on_send,
+			endpoint = server_ep,
+			all = true,
+			l = main_loop,
+		)
 
 		intrinsics.atomic_store_explicit(&state, .Ready, .Release)
-		@static connected: bool = false
+		@(static) connected: bool = false
 		//fmt.println("!ready!")
 		if !connected {
 			connected = true
@@ -194,7 +203,7 @@ read_and_send :: proc() {
 			continue
 		}
 		if n > MAX_PAYLOAD_SIZE do n = MAX_PAYLOAD_SIZE
-		if buf[n-1] == '\n' do n -= 1
+		if buf[n - 1] == '\n' do n -= 1
 		if n == 0 do continue
 
 		out := make([]byte, n + HMAC_TAG_SIZE + len(RECV_MSG))
@@ -202,10 +211,24 @@ read_and_send :: proc() {
 		copy(out[len(RECV_MSG):], buf[:n])
 
 		sync.mutex_lock(&hmac_mtx)
-		hmac.sum(hash.Algorithm.SHA256, out[len(RECV_MSG) + n:], out[len(RECV_MSG):len(RECV_MSG) + n], hmac_key[:])
+		hmac.sum(
+			hash.Algorithm.SHA256,
+			out[len(RECV_MSG) + n:],
+			out[len(RECV_MSG):len(RECV_MSG) + n],
+			hmac_key[:],
+		)
 		sync.mutex_unlock(&hmac_mtx)
 
-		nbio.send_poly2(socket, {out}, out, context.allocator, on_send, endpoint = server_ep, all = true, l = main_loop)
+		nbio.send_poly2(
+			socket,
+			{out},
+			out,
+			context.allocator,
+			on_send,
+			endpoint = server_ep,
+			all = true,
+			l = main_loop,
+		)
 	}
 
 	intrinsics.atomic_store_explicit(&exiting, true, .Release)
