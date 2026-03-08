@@ -8,17 +8,17 @@ import "core:time"
 //SHARED :: #config(OPENSSL_SHARED, false) //edited
 
 when ODIN_ARCH == .amd64 {
-    __ARCH_end :: "_amd64"
+	__ARCH_end :: "_amd64"
 } else when ODIN_ARCH == .i386 {
-    __ARCH_end :: "_i386"
+	__ARCH_end :: "_i386"
 } else when ODIN_ARCH == .arm64 {
-    __ARCH_end :: "_arm64"
+	__ARCH_end :: "_arm64"
 } else when ODIN_ARCH == .riscv64 {
-    __ARCH_end :: "_riscv64"
+	__ARCH_end :: "_riscv64"
 } else when ODIN_ARCH == .arm32 {
-    __ARCH_end :: "_arm32"
+	__ARCH_end :: "_arm32"
 } else when ODIN_OS == .JS || ODIN_OS == .WASI {
-    __ARCH_end :: "_wasm"
+	__ARCH_end :: "_wasm"
 }
 
 when ODIN_OS == .Windows && ODIN_PLATFORM_SUBTARGET == .Default {
@@ -30,34 +30,14 @@ when ODIN_OS == .Windows && ODIN_PLATFORM_SUBTARGET == .Default {
 }
 
 when ODIN_PLATFORM_SUBTARGET == .Android {
-	foreign import lib {
-		"lib/android/libssl" + ARCH_end,
-		"lib/android/libcrypto" + ARCH_end,
-	}
+	foreign import lib {"lib/android/libssl" + ARCH_end, "lib/android/libcrypto" + ARCH_end}
 } else when ODIN_OS == .Windows {
-	foreign import lib {
-		"lib/windows/libssl" + ARCH_end,
-		"lib/windows/libcrypto" + ARCH_end,
-		"system:ws2_32.lib",
-		"system:gdi32.lib",
-		"system:advapi32.lib",
-		"system:crypt32.lib",
-		"system:user32.lib",
-	}
+	foreign import lib {"lib/windows/libssl" + ARCH_end, "lib/windows/libcrypto" + ARCH_end, "system:ws2_32.lib", "system:gdi32.lib", "system:advapi32.lib", "system:crypt32.lib", "system:user32.lib"}
 } else when ODIN_OS == .Darwin {
-	foreign import lib {
-		"system:ssl.3",
-		"system:crypto.3",
-	}
+	foreign import lib {"system:ssl.3", "system:crypto.3"}
 } else {
-	// foreign import lib {
-	// 	"system:ssl",
-	// 	"system:crypto",
-	// }
-	foreign import lib {
-		"lib/linux/libssl" + ARCH_end,
-		"lib/linux/libcrypto" + ARCH_end,
-	}
+	foreign import lib {"system:ssl", "system:crypto"}
+	//foreign import lib {"lib/linux/libssl" + ARCH_end, "lib/linux/libcrypto" + ARCH_end}
 }
 
 Version :: bit_field u32 {
@@ -84,8 +64,8 @@ RSA :: struct {}
 BIGNUM :: struct {}
 
 // RSA padding
-RSA_PKCS1_PADDING     :: 1
-RSA_NO_PADDING        :: 3
+RSA_PKCS1_PADDING :: 1
+RSA_NO_PADDING :: 3
 RSA_PKCS1_OAEP_PADDING :: 4
 
 // DTLS/UDP usage (see dtls_udp_echo.c):
@@ -97,17 +77,17 @@ RSA_PKCS1_OAEP_PADDING :: 4
 
 // BIO close flags
 BIO_NOCLOSE :: 0x00
-BIO_CLOSE   :: 0x01
+BIO_CLOSE :: 0x01
 
 // BIO ctrl commands for DTLS/UDP
-BIO_C_SET_FD                :: 104
-BIO_CTRL_DGRAM_CONNECT      :: 31
+BIO_C_SET_FD :: 104
+BIO_CTRL_DGRAM_CONNECT :: 31
 BIO_CTRL_DGRAM_SET_CONNECTED :: 32
 BIO_CTRL_DGRAM_SET_RECV_TIMEOUT :: 33
 BIO_CTRL_DGRAM_GET_RECV_TIMER_EXP :: 37
-BIO_CTRL_DGRAM_GET_PEER     :: 46
-BIO_CTRL_RESET              :: 1
-BIO_CTRL_PENDING            :: 10  /* is there more data buffered */
+BIO_CTRL_DGRAM_GET_PEER :: 46
+BIO_CTRL_RESET :: 1
+BIO_CTRL_PENDING :: 10 /* is there more data buffered */
 
 // SSL options
 SSL_OP_COOKIE_EXCHANGE :: 1 << 13
@@ -116,15 +96,15 @@ SSL_OP_COOKIE_EXCHANGE :: 1 << 13
 SSL_RECEIVED_SHUTDOWN :: 2
 
 // SSL error codes
-SSL_ERROR_NONE    :: 0
-SSL_ERROR_SSL     :: 1
-SSL_ERROR_WANT_READ  :: 2
+SSL_ERROR_NONE :: 0
+SSL_ERROR_SSL :: 1
+SSL_ERROR_WANT_READ :: 2
 SSL_ERROR_WANT_WRITE :: 3
 SSL_ERROR_WANT_X509_LOOKUP :: 4
-SSL_ERROR_SYSCALL  :: 5
+SSL_ERROR_SYSCALL :: 5
 SSL_ERROR_ZERO_RETURN :: 6
 SSL_ERROR_WANT_CONNECT :: 7
-SSL_ERROR_WANT_ACCEPT  :: 8
+SSL_ERROR_WANT_ACCEPT :: 8
 
 // SSL verify modes
 SSL_VERIFY_NONE :: 0x00
@@ -145,7 +125,7 @@ TLSEXT_NAMETYPE_host_name :: 0
 
 // Cookie callbacks for DTLS stateless server
 Cookie_Generate_Cb :: #type proc(ssl: ^SSL, cookie: [^]byte, cookie_len: ^c.uint) -> c.int
-Cookie_Verify_Cb   :: #type proc(ssl: ^SSL, cookie: [^]byte, cookie_len: c.uint) -> c.int
+Cookie_Verify_Cb :: #type proc(ssl: ^SSL, cookie: [^]byte, cookie_len: c.uint) -> c.int
 
 foreign lib {
 	TLS_client_method :: proc() -> ^SSL_METHOD ---
@@ -198,10 +178,10 @@ foreign lib {
 	ERR_error_string :: proc(e: c.ulong, buf: rawptr) -> cstring ---
 
 	// RSA (data encrypt/decrypt, in libcrypto)
-	RSA_public_encrypt  :: proc(flen: c.int, from: [^]byte, to: [^]byte, rsa: ^RSA, padding: c.int) -> c.int ---
+	RSA_public_encrypt :: proc(flen: c.int, from: [^]byte, to: [^]byte, rsa: ^RSA, padding: c.int) -> c.int ---
 	RSA_private_decrypt :: proc(flen: c.int, from: [^]byte, to: [^]byte, rsa: ^RSA, padding: c.int) -> c.int ---
 	RSA_private_encrypt :: proc(flen: c.int, from: [^]byte, to: [^]byte, rsa: ^RSA, padding: c.int) -> c.int ---
-	RSA_public_decrypt  :: proc(flen: c.int, from: [^]byte, to: [^]byte, rsa: ^RSA, padding: c.int) -> c.int ---
+	RSA_public_decrypt :: proc(flen: c.int, from: [^]byte, to: [^]byte, rsa: ^RSA, padding: c.int) -> c.int ---
 	RSA_size :: proc(rsa: ^RSA) -> c.int ---
 	RSA_free :: proc(rsa: ^RSA) ---
 	RSA_new :: proc() -> ^RSA ---
@@ -219,13 +199,15 @@ foreign lib {
 	BIO_s_mem :: proc() -> rawptr ---
 	BIO_read :: proc(b: ^BIO, data: rawptr, dlen: c.int) -> c.int ---
 	PEM_write_bio_RSAPublicKey :: proc(bp: ^BIO, rsa: ^RSA) -> c.int ---
-	PEM_read_bio_RSAPublicKey  :: proc(bp: ^BIO, x: ^^RSA, cb: rawptr, u: rawptr) -> ^RSA ---
+	PEM_read_bio_RSAPublicKey :: proc(bp: ^BIO, x: ^^RSA, cb: rawptr, u: rawptr) -> ^RSA ---
 	PEM_read_bio_RSAPrivateKey :: proc(bp: ^BIO, x: ^^RSA, cb: rawptr, u: rawptr) -> ^RSA ---
 }
 
 // This is a macro in c land.
 SSL_set_tlsext_host_name :: proc(ssl: ^SSL, name: cstring) -> c.int {
-	return c.int(SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, rawptr(name)))
+	return c.int(
+		SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, rawptr(name)),
+	)
 }
 
 // BIO helpers (C macros)
@@ -284,14 +266,24 @@ RSA_load_private_pem_file :: proc(path: cstring) -> ^RSA {
 
 // Encrypt data with public key. Returns encrypted length or -1 on error.
 // out must be at least RSA_size(rsa) bytes.
-RSA_encrypt :: proc(rsa: ^RSA, data: []byte, out: []byte, padding: c.int = RSA_PKCS1_PADDING) -> c.int {
+RSA_encrypt :: proc(
+	rsa: ^RSA,
+	data: []byte,
+	out: []byte,
+	padding: c.int = RSA_PKCS1_PADDING,
+) -> c.int {
 	if rsa == nil || len(data) == 0 || len(out) < int(RSA_size(rsa)) do return -1
 	return RSA_public_encrypt(c.int(len(data)), raw_data(data), raw_data(out), rsa, padding)
 }
 
 // Decrypt data with private key. Returns decrypted length or -1 on error.
 // out must be at least RSA_size(rsa) bytes.
-RSA_decrypt :: proc(rsa: ^RSA, data: []byte, out: []byte, padding: c.int = RSA_PKCS1_PADDING) -> c.int {
+RSA_decrypt :: proc(
+	rsa: ^RSA,
+	data: []byte,
+	out: []byte,
+	padding: c.int = RSA_PKCS1_PADDING,
+) -> c.int {
 	if rsa == nil || len(data) == 0 || len(out) < int(RSA_size(rsa)) do return -1
 	return RSA_private_decrypt(c.int(len(data)), raw_data(data), raw_data(out), rsa, padding)
 }
@@ -335,7 +327,7 @@ RSA_export_public_pem :: proc(rsa: ^RSA, allocator := context.allocator) -> []by
 	if n <= 0 {
 		delete(buf, allocator)
 		return nil
-	} 
+	}
 
 	return buf
 }
