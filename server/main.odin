@@ -130,7 +130,7 @@ on_recv :: proc(op: ^nbio.Operation) {
 	}
 
 	// Phase 1: INIT - send pre-exported public key
-	if op.recv.received >= 4 && string(data[:4]) == INIT_MSG {
+	if op.recv.received >= len(INIT_MSG) && string(data[:len(INIT_MSG)]) == INIT_MSG {
 		send_req_key(sock, source)
 		return
 	}
@@ -144,7 +144,7 @@ on_recv :: proc(op: ^nbio.Operation) {
 			mtx_allocator,
 		)
 		defer delete(decrypted, mtx_allocator)
-		n := openssl.RSA_decrypt(server.rsa_private, data, decrypted[:])
+		n := openssl.RSA_decrypt(server.rsa_private, data[len(REQ_KEY_MSG):], decrypted[:])
 		if n == HMAC_KEY_SIZE {
 			add_client(source, decrypted[:HMAC_KEY_SIZE])
 			fmt.printf("Client %v registered (HMAC key exchanged)\n", source)

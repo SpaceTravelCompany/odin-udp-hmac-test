@@ -44,12 +44,11 @@ read_and_send_thread: ^thread.Thread
 
 exiting: bool = false
 
-hmac_mtx: sync.Mutex
+init_buf: [4]byte = INIT_MSG
 
 init_connect :: proc(l: ^nbio.Event_Loop) {
 	intrinsics.atomic_store_explicit(&state, .Requesting_Pubkey, .Release)
-	init_buf: [4]byte
-	copy(init_buf[:], INIT_MSG)
+
 	nbio.send(socket, {init_buf[:]}, proc(op: ^nbio.Operation) {}, endpoint = server_ep, l = l)
 }
 
@@ -57,6 +56,8 @@ main :: proc() {
 	err := nbio.acquire_thread_event_loop()
 	assert(err == nil)
 	defer nbio.release_thread_event_loop()
+
+	crypto.rand_bytes(hmac_key[:])
 
 	sock_err: nbio.Create_Socket_Error
 	socket, sock_err = nbio.create_udp_socket(nbio.Address_Family.IP4)
@@ -123,11 +124,8 @@ on_recv :: proc(op: ^nbio.Operation) {
 			return
 		}
 		// Generate HMAC key and encrypt with server's public key
-		sync.mutex_lock(&hmac_mtx)
-		crypto.rand_bytes(hmac_key[:])
 		encrypted: [256]byte
 		n := openssl.RSA_encrypt(pubkey, hmac_key[:], encrypted[:])
-		sync.mutex_unlock(&hmac_mtx)
 
 		openssl.RSA_free(pubkey)
 		if n < 0 {
@@ -136,8 +134,9 @@ on_recv :: proc(op: ^nbio.Operation) {
 			intrinsics.atomic_store_explicit(&state, .Error, .Release)
 			return
 		}
-		out := make([]byte, n)
-		copy(out, encrypted[:n])
+		out := make([]byte, len(REQ_KEY_MSG) + n)
+		copy(out[:len(REQ_KEY_MSG)], REQ_KEY_MSG)
+		copy(out[len(REQ_KEY_MSG):], encrypted[:n])
 		nbio.send_poly2(
 			socket,
 			{out},
@@ -170,12 +169,11 @@ on_recv :: proc(op: ^nbio.Operation) {
 		payload_len := op.recv.received - HMAC_TAG_SIZE - len(RECV_MSG)
 		payload := data[len(RECV_MSG):len(RECV_MSG) + payload_len]
 		tag := data[len(RECV_MSG) + payload_len:]
-		sync.mutex_lock(&hmac_mtx)
+
 		if !hmac.verify(hash.Algorithm.SHA256, tag, payload, hmac_key[:]) {
 			fmt.eprintln("HMAC verify failed")
 			return
 		}
-		sync.mutex_unlock(&hmac_mtx)
 		fmt.printf("received: %s\n", payload)
 	}
 }
@@ -210,14 +208,12 @@ read_and_send :: proc() {
 		copy(out, RECV_MSG)
 		copy(out[len(RECV_MSG):], buf[:n])
 
-		sync.mutex_lock(&hmac_mtx)
 		hmac.sum(
 			hash.Algorithm.SHA256,
 			out[len(RECV_MSG) + n:],
 			out[len(RECV_MSG):len(RECV_MSG) + n],
 			hmac_key[:],
 		)
-		sync.mutex_unlock(&hmac_mtx)
 
 		nbio.send_poly2(
 			socket,
