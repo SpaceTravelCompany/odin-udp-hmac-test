@@ -134,6 +134,16 @@ on_recv :: proc(op: ^nbio.Operation) {
 		send_req_key(sock, source)
 		return
 	}
+	if op.recv.received < 4 + 1 {
+		fmt.eprintln(
+			"Client sent invalid message size:",
+			op.recv.received,
+			" contents:",
+			string(data[:op.recv.received]),
+			" -- expected at least 4 + 1 bytes",
+		)
+		return
+	}
 
 	// Phase 2: Encrypted HMAC key (RSA block size)
 	client := find_client(source)
@@ -149,17 +159,21 @@ on_recv :: proc(op: ^nbio.Operation) {
 			add_client(source, decrypted[:HMAC_KEY_SIZE])
 			fmt.printf("Client %v registered (HMAC key exchanged)\n", source)
 		} else {
-			fmt.printf("Client HMAC key exchange failed size : %d, d: %d\n", op.recv.received, n)
+			fmt.eprintf("Client HMAC key exchange failed size : %d, d: %d\n", op.recv.received, n)
 			send_req_key(sock, source)
 		}
 		return
 	}
 
 	// Phase 3: Chat message with HMAC
-	if client == nil do return
 	if op.recv.received < HMAC_TAG_SIZE + len(RECV_MSG) do return
 	if string(data[:len(RECV_MSG)]) != RECV_MSG {
-		fmt.eprintln("Invalid message")
+		fmt.eprintln(
+			"Invalid message size:",
+			op.recv.received,
+			" contents:",
+			string(data[:op.recv.received]),
+		)
 		send_req_key(sock, source)
 		return
 	}
