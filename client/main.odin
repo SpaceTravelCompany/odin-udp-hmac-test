@@ -12,7 +12,7 @@ import "core:crypto/hash"
 import "core:thread"
 import "core:sync"
 
-import openssl "./openssl"
+import openssl "../openssl"
 
 CHAT_PORT :: 9999
 MAX_MESSAGE_SIZE :: 1024
@@ -70,7 +70,7 @@ main :: proc() {
 	server_ep, resolve_err = net.resolve_ip4(fmt.tprintf("127.0.0.1:%d", CHAT_PORT))
 	assert(resolve_err == nil)
 
-	
+
 	main_loop = nbio.current_thread_event_loop()
 
 	// Phase 1: Send INIT to request server's public key
@@ -100,13 +100,13 @@ on_recv :: proc(op: ^nbio.Operation) {
 	}
 
 	data := op.recv.bufs[0][:op.recv.received]
-	
+
 
 	if string(data[:len(REQ_KEY_MSG)]) == REQ_KEY_MSG {
 		fmt.println("Server requested key...")
 		intrinsics.atomic_store_explicit(&state, .Requesting_Pubkey, .Release)
 	}
-	
+
 
 	switch intrinsics.atomic_load_explicit(&state, .Acquire) {
 	case .Error:
@@ -181,7 +181,7 @@ on_send :: proc(op: ^nbio.Operation, m: []byte, allocator: mem.Allocator) {
 
 read_and_send :: proc() {
 	buf: [MAX_MESSAGE_SIZE]byte
-	
+
 
 	for {
 		n: int
@@ -200,7 +200,7 @@ read_and_send :: proc() {
 		out := make([]byte, n + HMAC_TAG_SIZE + len(RECV_MSG))
 		copy(out, RECV_MSG)
 		copy(out[len(RECV_MSG):], buf[:n])
-		
+
 		sync.mutex_lock(&hmac_mtx)
 		hmac.sum(hash.Algorithm.SHA256, out[len(RECV_MSG) + n:], out[len(RECV_MSG):len(RECV_MSG) + n], hmac_key[:])
 		sync.mutex_unlock(&hmac_mtx)

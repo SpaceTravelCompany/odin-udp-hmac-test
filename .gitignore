@@ -4,3 +4,4 @@ ssh/
 .ssh/
 *.pem
 *.env
+*.bin

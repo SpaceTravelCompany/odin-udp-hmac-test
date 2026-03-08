@@ -7,7 +7,7 @@ import "core:mem"
 import "core:nbio"
 import "core:net"
 
-import openssl "shared:odin-http/openssl"
+import openssl "../openssl"
 
 CHAT_PORT :: 9999
 MAX_MESSAGE_SIZE :: 1024
