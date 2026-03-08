@@ -90,19 +90,18 @@ on_recv :: proc(op: ^nbio.Operation) {
 			fmt.eprintln("RSA encrypt failed")
 			return
 		}
-		state = .Sending_Key
 		out := make([]byte, n, mtx_allocator)
 		copy(out, encrypted[:n])
 		nbio.send_poly(socket, {out}, out, proc(op: ^nbio.Operation, m: []byte) {
 			defer delete(m, mtx_allocator)
-			state = .Ready
-			read_and_send()
+			
 		}, endpoint = server_ep, all = true)
 
-	case .Sending_Key:
-		// Unexpected (server doesn't ack key) - fall through to Ready
 		state = .Ready
-		fallthrough
+		read_and_send()
+	case .Sending_Key:
+		// Unexpected (server doesn't ack key)
+		return
 	case .Ready:
 		// Chat message with HMAC
 		if op.recv.received < HMAC_TAG_SIZE do return
@@ -119,6 +118,10 @@ on_recv :: proc(op: ^nbio.Operation) {
 	}
 }
 
+on_send :: proc(op: ^nbio.Operation, m: []byte) {
+	defer delete(m, mtx_allocator)
+}
+
 read_and_send :: proc() {
 	n: int
 	for {
@@ -130,8 +133,6 @@ read_and_send :: proc() {
 	out := make([]byte, n + HMAC_TAG_SIZE, mtx_allocator)
 	copy(out, recv_buf[:n])
 	hmac.sum(hash.Algorithm.SHA256, out[n:], out[:n], hmac_key[:])
-	nbio.send_poly(socket, {out}, out, proc(op: ^nbio.Operation, m: []byte) {
-		defer delete(m, mtx_allocator)
-	}, endpoint = server_ep, all = true)
+	nbio.send_poly(socket, {out}, out, on_send, endpoint = server_ep, all = true)
 	nbio.recv(socket, {recv_buf[:]}, on_recv)
 }

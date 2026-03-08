@@ -99,6 +99,10 @@ main :: proc() {
 	}
 }
 
+on_send :: proc(op: ^nbio.Operation, m: []byte) {
+	defer delete(m, mtx_allocator)
+}
+
 on_recv :: proc(op: ^nbio.Operation) {
 	sock := op.recv.socket.(nbio.UDP_Socket)
 	defer nbio.recv(sock, {recv_buf[:]}, on_recv, all = false)
@@ -116,9 +120,7 @@ on_recv :: proc(op: ^nbio.Operation) {
 	if op.recv.received >= 4 && string(data[:4]) == INIT_MSG {
 		out := make([]byte, len(server.pubkey_pem), mtx_allocator)
 		copy(out, server.pubkey_pem)
-		nbio.send_poly(sock, {out}, out, proc(op: ^nbio.Operation, m: []byte) {
-			defer delete(m, mtx_allocator)
-		}, endpoint = source, all = true)
+		nbio.send_poly(sock, {out}, out, on_send, endpoint = source, all = true)
 		return
 	}
 
@@ -155,7 +157,5 @@ on_recv :: proc(op: ^nbio.Operation) {
 	out := make([]byte, payload_len + HMAC_TAG_SIZE, mtx_allocator)
 	copy(out, payload)
 	hmac.sum(hash.Algorithm.SHA256, out[payload_len:], payload, client.hmac_key[:])
-	nbio.send_poly(sock, {out}, out, proc(op: ^nbio.Operation, m: []byte) {
-		defer delete(m, mtx_allocator)
-	}, endpoint = client.end, all = true)
+	nbio.send_poly(sock, {out}, out, on_send, endpoint = client.end, all = true)
 }
