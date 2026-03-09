@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "odin build client",
+      "type": "shell",
+      "command": "odin",
+      "args": ["build", "client", "-debug"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+      },
+      "group": "build",
+    },
+    {
+      "label": "odin build server",
+      "type": "shell",
+      "command": "odin",
+      "args": ["build", "server", "-debug"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+      },
+      "group": "build",
+    },
+  ],
+}

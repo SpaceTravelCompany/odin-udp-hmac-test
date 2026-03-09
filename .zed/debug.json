@@ -1,0 +1,28 @@
+// Project-local debug tasks
+//
+// For more documentation on how to configure debug tasks,
+// see: https://zed.dev/docs/debugger
+[
+  {
+    "label": "Debug Client binary",
+    "build": {
+      "command": "odin",
+      "args": ["build", "client", "-debug"],
+      "cwd": "$ZED_WORKTREE_ROOT",
+    },
+    "program": "$ZED_WORKTREE_ROOT/client.bin",
+    "request": "launch",
+    "adapter": "CodeLLDB",
+  },
+  {
+    "label": "Debug Server binary",
+    "build": {
+      "command": "odin",
+      "args": ["build", "server", "-debug"],
+      "cwd": "$ZED_WORKTREE_ROOT",
+    },
+    "program": "$ZED_WORKTREE_ROOT/server.bin",
+    "request": "launch",
+    "adapter": "CodeLLDB",
+  },
+]

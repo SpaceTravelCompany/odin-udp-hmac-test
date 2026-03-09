@@ -1,10 +1,19 @@
 {
+	"version": "0.2.0",
 	"configurations": [
 		{
 			"type": "lldb",
 			"request": "launch",
-			"name": "Launch",
-			"program": "${workspaceFolder}/chat_client.exe",
+			"name": "Debug Client",
+			"program": "${workspaceFolder}/client.bin",
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "Debug Server",
+			"program": "${workspaceFolder}/server.bin",
 			"args": [],
 			"cwd": "${workspaceFolder}"
 		}
