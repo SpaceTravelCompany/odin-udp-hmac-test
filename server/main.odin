@@ -7,7 +7,7 @@ import "core:mem"
 import "core:nbio"
 import "core:net"
 
-import openssl "../openssl"
+import openssl "shared:clibs/openssl"
 
 CHAT_PORT :: 9999
 MAX_MESSAGE_SIZE :: 1024
@@ -195,3 +195,4 @@ on_recv :: proc(op: ^nbio.Operation) {
 	hmac.sum(hash.Algorithm.SHA256, out[len(RECV_MSG) + payload_len:], payload, client.hmac_key[:])
 	nbio.send_poly(sock, {out}, out, on_send, endpoint = client.end, all = true)
 }
+

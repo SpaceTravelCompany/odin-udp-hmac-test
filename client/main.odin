@@ -12,7 +12,7 @@ import "core:os"
 import "core:sync"
 import "core:thread"
 
-import openssl "../openssl"
+import openssl "shared:clibs/openssl"
 
 CHAT_PORT :: 9999
 MAX_MESSAGE_SIZE :: 1024
@@ -229,3 +229,4 @@ read_and_send :: proc() {
 
 	intrinsics.atomic_store_explicit(&exiting, true, .Release)
 }
+
