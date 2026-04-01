@@ -1,11 +1,15 @@
 package main
 
+import "base:runtime"
 import "core:crypto/hash"
 import "core:crypto/hmac"
 import "core:fmt"
 import "core:mem"
 import "core:nbio"
 import "core:net"
+import "core:os"
+import "core:sync"
+import "core:thread"
 
 import openssl "shared:clibs/openssl"
 
@@ -34,9 +38,8 @@ Chat_Server :: struct {
 }
 
 server: Chat_Server
-mtx_allocator: mem.Allocator
-mtx_allocator_: mem.Mutex_Allocator
 recv_buf: [MAX_MESSAGE_SIZE]byte
+thread_pool: thread.Pool
 
 find_client :: proc(ep: nbio.Endpoint) -> ^Client {
 	for &c in server.clients {
@@ -53,6 +56,9 @@ add_client :: proc(ep: nbio.Endpoint, key: []byte) {
 	append(&server.clients, new_client)
 }
 
+@(thread_local)
+thread_allocator: runtime.Allocator
+
 main :: proc() {
 	err := nbio.acquire_thread_event_loop()
 	if err != nil {
@@ -63,9 +69,6 @@ main :: proc() {
 
 	socket, sock_err := nbio.create_udp_socket(nbio.Address_Family.IP4)
 	assert(sock_err == nil)
-
-	mem.mutex_allocator_init(&mtx_allocator_, context.allocator)
-	mtx_allocator = mem.mutex_allocator(&mtx_allocator_)
 
 	net.set_option(socket, net.Socket_Option.Reuse_Address, true)
 	bind_err := nbio.bind(socket, nbio.Endpoint{address = nbio.IP4_Any, port = CHAT_PORT})
@@ -80,7 +83,7 @@ main :: proc() {
 	}
 	defer openssl.RSA_free(rsa_private)
 
-	pubkey_pem := openssl.RSA_export_public_pem(rsa_private, mtx_allocator)
+	pubkey_pem := openssl.RSA_export_public_pem(rsa_private, context.allocator)
 	if pubkey_pem == nil {
 		fmt.eprintln("ERROR: failed to export public key PEM")
 		openssl.ERR_print_errors_stderr()
@@ -92,8 +95,11 @@ main :: proc() {
 		rsa_size    = int(openssl.RSA_size(rsa_private)),
 		pubkey_pem  = pubkey_pem,
 	}
-	defer delete(server.pubkey_pem, mtx_allocator)
+	defer delete(server.pubkey_pem)
 	fmt.printf("UDP Chat Server on port %d (HMAC+RSA)\n", CHAT_PORT)
+
+	thread.pool_init(&thread_pool, context.allocator, os.get_processor_core_count(), work_init)
+	thread.pool_start(&thread_pool)
 
 	nbio.recv(socket, {recv_buf[:]}, on_recv, all = false)
 
@@ -102,12 +108,131 @@ main :: proc() {
 	}
 }
 
-on_send :: proc(op: ^nbio.Operation, m: []byte) {
-	defer delete(m, mtx_allocator)
+work_init :: proc(thread: ^thread.Thread, user_data: rawptr) {
+	thread_allocator = runtime.default_allocator()
+	context.allocator = thread_allocator
+}
+
+on_send :: proc(op: ^nbio.Operation, m: []byte, allocator: runtime.Allocator) {
+	defer delete(m, allocator)
 	if op.send.err != nil {
 		fmt.eprintln("Send error:", op.send.err)
 	}
 }
+
+WorkStruct :: struct {
+	source: nbio.Endpoint,
+	data:   []byte,
+	sema:   sync.Sema,
+	sock:   nbio.UDP_Socket,
+	loop:   ^nbio.Event_Loop,
+}
+
+work :: proc(t: thread.Task) {
+	context.allocator = thread_allocator
+
+	work_struct := (^WorkStruct)(t.data)
+	source := work_struct.source
+	loop := work_struct.loop
+	sock := work_struct.sock
+
+	data, err := runtime.mem_alloc_non_zeroed(len(work_struct.data))
+	if err != nil {
+		fmt.eprintln("work allocate err : ", err)
+		sync.sema_post(&work_struct.sema)
+		return
+	}
+	mem.copy_non_overlapping(raw_data(data), raw_data(work_struct.data), len(work_struct.data))
+
+	sync.sema_post(&work_struct.sema)
+	defer delete(data)
+
+	length := len(data)
+
+	send_req_key :: proc(sock: nbio.UDP_Socket, ep: nbio.Endpoint, loop: ^nbio.Event_Loop) {
+		out := make([]byte, len(server.pubkey_pem) + len(REQ_KEY_MSG))
+		copy(out, REQ_KEY_MSG)
+		copy(out[len(REQ_KEY_MSG):], server.pubkey_pem)
+		nbio.send_poly2(
+			sock,
+			{out},
+			out,
+			context.allocator,
+			on_send,
+			endpoint = ep,
+			all = true,
+			l = loop,
+		)
+	}
+
+	// Phase 1: INIT - send pre-exported public key
+	if length >= len(INIT_MSG) && string(data[:len(INIT_MSG)]) == INIT_MSG {
+		send_req_key(sock, source, loop)
+		sync.sema_post(&work_struct.sema)
+		return
+	}
+	if length < 4 + 1 {
+		fmt.eprintln(
+			"Client sent invalid message size:",
+			length,
+			" contents:",
+			string(data),
+			" -- expected at least 4 + 1 bytes",
+		)
+		return
+	}
+
+	// Phase 2: Encrypted HMAC key (RSA block size)
+	client := find_client(source)
+	if client == nil {
+		decrypted: []byte = make([]byte, max(HMAC_KEY_SIZE, openssl.RSA_size(server.rsa_private)))
+		defer delete(decrypted)
+		n := openssl.RSA_decrypt(server.rsa_private, data[len(REQ_KEY_MSG):], decrypted[:])
+		if n == HMAC_KEY_SIZE {
+			add_client(source, decrypted[:HMAC_KEY_SIZE])
+			fmt.printf("Client %v registered (HMAC key exchanged)\n", source)
+		} else {
+			fmt.eprintf("Client HMAC key exchange failed size : %d, d: %d\n", length, n)
+			send_req_key(sock, source, loop)
+		}
+		return
+	}
+
+	// Phase 3: Chat message with HMAC
+	if length < HMAC_TAG_SIZE + len(RECV_MSG) do return
+	if string(data[:len(RECV_MSG)]) != RECV_MSG {
+		fmt.eprintln("Invalid message size:", length, " contents:", string(data))
+		send_req_key(sock, source, loop)
+		return
+	}
+
+	payload_len := length - HMAC_TAG_SIZE - len(RECV_MSG)
+	payload := data[len(RECV_MSG):len(RECV_MSG) + payload_len]
+	tag := data[len(RECV_MSG) + payload_len:]
+
+	if !hmac.verify(hash.Algorithm.SHA256, tag, payload, client.hmac_key[:]) {
+		fmt.eprintln("HMAC verification failed, dropping message")
+		send_req_key(sock, source, loop)
+		return
+	}
+	fmt.printf("received %v: %s\n", client.end, payload)
+
+	out := make([]byte, payload_len + HMAC_TAG_SIZE + len(RECV_MSG))
+	copy(out, RECV_MSG)
+	copy(out[len(RECV_MSG):], payload)
+	hmac.sum(hash.Algorithm.SHA256, out[len(RECV_MSG) + payload_len:], payload, client.hmac_key[:])
+	nbio.send_poly2(
+		sock,
+		{out},
+		out,
+		context.allocator,
+		on_send,
+		endpoint = client.end,
+		all = true,
+		l = loop,
+	)
+}
+
 
 on_recv :: proc(op: ^nbio.Operation) {
 	sock := op.recv.socket.(nbio.UDP_Socket)
@@ -119,80 +244,14 @@ on_recv :: proc(op: ^nbio.Operation) {
 	}
 	if op.recv.received == 0 do return
 
-	source := op.recv.source
-	data := op.recv.bufs[0][:op.recv.received]
-
-	send_req_key :: proc(sock: nbio.UDP_Socket, ep: nbio.Endpoint) {
-		out := make([]byte, len(server.pubkey_pem) + len(REQ_KEY_MSG), mtx_allocator)
-		copy(out, REQ_KEY_MSG)
-		copy(out[len(REQ_KEY_MSG):], server.pubkey_pem)
-		nbio.send_poly(sock, {out}, out, on_send, endpoint = ep, all = true)
+	work_struct := WorkStruct {
+		loop   = op.l,
+		sock   = sock,
+		source = op.recv.source,
+		data   = op.recv.bufs[0][:op.recv.received],
 	}
+	thread.pool_add_task(&thread_pool, {}, work, &work_struct) // leave allocator empty because setting thread_allocator in work proc(don't use default context.allocator in thread)
 
-	// Phase 1: INIT - send pre-exported public key
-	if op.recv.received >= len(INIT_MSG) && string(data[:len(INIT_MSG)]) == INIT_MSG {
-		send_req_key(sock, source)
-		return
-	}
-	if op.recv.received < 4 + 1 {
-		fmt.eprintln(
-			"Client sent invalid message size:",
-			op.recv.received,
-			" contents:",
-			string(data[:op.recv.received]),
-			" -- expected at least 4 + 1 bytes",
-		)
-		return
-	}
-
-	// Phase 2: Encrypted HMAC key (RSA block size)
-	client := find_client(source)
-	if client == nil {
-		decrypted: []byte = make(
-			[]byte,
-			max(HMAC_KEY_SIZE, openssl.RSA_size(server.rsa_private)),
-			mtx_allocator,
-		)
-		defer delete(decrypted, mtx_allocator)
-		n := openssl.RSA_decrypt(server.rsa_private, data[len(REQ_KEY_MSG):], decrypted[:])
-		if n == HMAC_KEY_SIZE {
-			add_client(source, decrypted[:HMAC_KEY_SIZE])
-			fmt.printf("Client %v registered (HMAC key exchanged)\n", source)
-		} else {
-			fmt.eprintf("Client HMAC key exchange failed size : %d, d: %d\n", op.recv.received, n)
-			send_req_key(sock, source)
-		}
-		return
-	}
-
-	// Phase 3: Chat message with HMAC
-	if op.recv.received < HMAC_TAG_SIZE + len(RECV_MSG) do return
-	if string(data[:len(RECV_MSG)]) != RECV_MSG {
-		fmt.eprintln(
-			"Invalid message size:",
-			op.recv.received,
-			" contents:",
-			string(data[:op.recv.received]),
-		)
-		send_req_key(sock, source)
-		return
-	}
-
-	payload_len := op.recv.received - HMAC_TAG_SIZE - len(RECV_MSG)
-	payload := data[len(RECV_MSG):len(RECV_MSG) + payload_len]
-	tag := data[len(RECV_MSG) + payload_len:]
-
-	if !hmac.verify(hash.Algorithm.SHA256, tag, payload, client.hmac_key[:]) {
-		fmt.eprintln("HMAC verification failed, dropping message")
-		send_req_key(sock, source)
-		return
-	}
-	fmt.printf("received %v: %s\n", client.end, payload)
-
-	out := make([]byte, payload_len + HMAC_TAG_SIZE + len(RECV_MSG), mtx_allocator)
-	copy(out, RECV_MSG)
-	copy(out[len(RECV_MSG):], payload)
-	hmac.sum(hash.Algorithm.SHA256, out[len(RECV_MSG) + payload_len:], payload, client.hmac_key[:])
-	nbio.send_poly(sock, {out}, out, on_send, endpoint = client.end, all = true)
+	sync.sema_wait(&work_struct.sema)
 }
 
