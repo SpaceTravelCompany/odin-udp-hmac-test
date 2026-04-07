@@ -56,8 +56,6 @@ add_client :: proc(ep: nbio.Endpoint, key: []byte) {
 	append(&server.clients, new_client)
 }
 
-@(thread_local)
-thread_allocator: runtime.Allocator
 
 main :: proc() {
 	err := nbio.acquire_thread_event_loop()
@@ -98,7 +96,7 @@ main :: proc() {
 	defer delete(server.pubkey_pem)
 	fmt.printf("UDP Chat Server on port %d (HMAC+RSA)\n", CHAT_PORT)
 
-	thread.pool_init(&thread_pool, context.allocator, os.get_processor_core_count(), work_init)
+	thread.pool_init(&thread_pool, context.allocator, os.get_processor_core_count())
 	thread.pool_start(&thread_pool)
 
 	nbio.recv(socket, {recv_buf[:]}, on_recv, all = false)
@@ -106,11 +104,6 @@ main :: proc() {
 	if err := nbio.run(); err != nil {
 		fmt.eprintfln("run: %v", nbio.error_string(err))
 	}
-}
-
-work_init :: proc(thread: ^thread.Thread, user_data: rawptr) {
-	thread_allocator = runtime.default_allocator()
-	context.allocator = thread_allocator
 }
 
 on_send :: proc(op: ^nbio.Operation, m: []byte, allocator: runtime.Allocator) {
@@ -129,8 +122,6 @@ WorkStruct :: struct {
 }
 
 work :: proc(t: thread.Task) {
-	context.allocator = thread_allocator
-
 	work_struct := (^WorkStruct)(t.data)
 	source := work_struct.source
 	loop := work_struct.loop
@@ -250,8 +241,7 @@ on_recv :: proc(op: ^nbio.Operation) {
 		source = op.recv.source,
 		data   = op.recv.bufs[0][:op.recv.received],
 	}
-	thread.pool_add_task(&thread_pool, {}, work, &work_struct) // leave allocator empty because setting thread_allocator in work proc(don't use default context.allocator in thread)
+	thread.pool_add_task(&thread_pool, context.allocator, work, &work_struct)
 
 	sync.sema_wait(&work_struct.sema)
 }
-
